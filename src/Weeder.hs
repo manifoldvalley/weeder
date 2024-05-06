@@ -142,46 +142,19 @@ prettyUsageGraph x = flip foldMap (AM.edgeList x) $ \(occs, src, dst) ->
 
 
 dotOutput :: AM.AdjacencyMap (Set String) String -> String
-dotOutput am = unlines
-  [ "digraph G {"
-  , "compound=true;"
-  , unlines $ do
-      modul <- toList $ AM.vertexSet am
-      pure $ unlines
-        [ "subgraph " <> show ("cluster_" <> modul) <> "{"
-        , "label = " <> show modul
-        , "color=blue;"
-        , unwords
-          [ show $ modul <> ":imports"
-          , "[label ="
-          , show "imports"
-          , "]"
-          ]
-        , unlines $ do
-            (occs, src, dst) <- AM.edgeList am
-            guard $ src /= dst
-            guard $ dst == modul
-            occ <- toList occs
-            pure $ unwords
-              [ show (dst <> "." <> occ)
-              , "[label = "
-              , show occ
-              , ", shape=plaintext"
-              , "];"
-              ]
-        , "}"
-        ]
-  , unlines $ do
-    (occs, src, dst) <- AM.edgeList am
-    guard $ src /= dst
-    occ <- toList occs
-    pure $ unwords
-      [ show $ src <> ":imports"
-      , "->"
-      , show $ dst <> "." <> occ
-      ]
-  , "}"
-  ]
+dotOutput am = flip mappend "\n}" $ mappend "digraph G {\n" $ unlines $ do
+  (occs, src, dst) <- AM.edgeList am
+  guard $ src /= dst
+  guard $ length occs == 1
+  occ <- toList occs
+  pure $ unwords
+    [ show src
+    , "->"
+    , show dst
+    , "[label = "
+    , show  occ
+    , "]"
+    ]
 
 
 
