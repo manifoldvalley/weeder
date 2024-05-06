@@ -41,7 +41,7 @@ import Data.Traversable ( for )
 import Data.Maybe ( mapMaybe )
 import Data.Foldable ( for_, traverse_, toList )
 import Data.Function ( (&) )
-import Data.List ( intercalate )
+import Data.List ( intercalate, isPrefixOf )
 import Data.Monoid ( First( First ), getFirst )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
@@ -60,7 +60,8 @@ import Data.Generics.Labels ()
 
 -- ghc
 import GHC.Data.FastString ( unpackFS )
-import GHC.Unit.Module (moduleName, moduleNameString)
+import GHC.Unit.Module (moduleName, moduleNameString, moduleUnit)
+import GHC.Unit.Types (baseUnit)
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind, RecField )
@@ -129,10 +130,14 @@ usageGraph :: Graph Declaration -> AM.AdjacencyMap (Set OccName) Module
 usageGraph x = flip foldMap (edgeList x) $ \(Declaration src _, Declaration dst occ) ->
   AM.edge (Set.singleton occ) src dst
 
+
 prettyUsageGraph :: AM.AdjacencyMap (Set OccName) Module -> AM.AdjacencyMap (Set String) String
 prettyUsageGraph x = flip foldMap (AM.edgeList x) $ \(occs, src, dst) ->
   let name = moduleNameString . moduleName
-   in AM.edge (Set.map occNameString occs) (name src) (name dst)
+      dstunit = show $ moduleUnit dst
+   in case isPrefixOf "maniga-" dstunit || isPrefixOf "manipipe-" dstunit of
+        True -> AM.edge (Set.map occNameString occs) (name src) (name dst)
+        False -> mempty
 
 
 

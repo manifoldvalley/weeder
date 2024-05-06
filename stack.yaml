@@ -8,5 +8,8 @@ extra-deps:
 - git: https://github.com/manifoldvalley/alga
   commit: '01a42337b7f5845ce0c4df7d49cfd6949a78d8a7'
 
+ghc-options:
+  "$locals": -fwrite-ide-info
+
 
 
