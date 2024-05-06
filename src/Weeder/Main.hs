@@ -47,7 +47,7 @@ import qualified Data.Text.IO as T
 -- weeder
 import Weeder.Run
 import Weeder.Config
-import Weeder (dependencyGraph, usageGraph, prettyUsageGraph)
+import Weeder (dependencyGraph, usageGraph, prettyUsageGraph, dotOutput)
 import Paths_weeder (version)
 
 
@@ -225,7 +225,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 
   mapM_ (putStrLn . formatWeed) weeds
 
-  print $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
+  writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
 
   unless (null weeds) $ throwIO ExitWeedsFound
 

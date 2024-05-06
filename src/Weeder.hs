@@ -19,6 +19,7 @@ module Weeder
   , outputableDeclarations
   , usageGraph
   , prettyUsageGraph
+  , dotOutput
 
     -- ** Reachability
   , Root(..)
@@ -138,6 +139,49 @@ prettyUsageGraph x = flip foldMap (AM.edgeList x) $ \(occs, src, dst) ->
    in case isPrefixOf "maniga-" dstunit || isPrefixOf "manipipe-" dstunit of
         True -> AM.edge (Set.map occNameString occs) (name src) (name dst)
         False -> mempty
+
+
+dotOutput :: AM.AdjacencyMap (Set String) String -> String
+dotOutput am = unlines
+  [ "digraph G {"
+  , "compound=true;"
+  , unlines $ do
+      modul <- toList $ AM.vertexSet am
+      pure $ unlines
+        [ "subgraph " <> show ("cluster_" <> modul) <> "{"
+        , "label = " <> show modul
+        , "color=blue;"
+        , unwords
+          [ show $ modul <> ":imports"
+          , "[label ="
+          , show "imports"
+          , "]"
+          ]
+        , unlines $ do
+            (occs, src, dst) <- AM.edgeList am
+            guard $ src /= dst
+            guard $ dst == modul
+            occ <- toList occs
+            pure $ unwords
+              [ show (dst <> "." <> occ)
+              , "[label = "
+              , show occ
+              , ", shape=plaintext"
+              , "];"
+              ]
+        , "}"
+        ]
+  , unlines $ do
+    (occs, src, dst) <- AM.edgeList am
+    guard $ src /= dst
+    occ <- toList occs
+    pure $ unwords
+      [ show $ src <> ":imports"
+      , "->"
+      , show $ dst <> "." <> occ
+      ]
+  , "}"
+  ]
 
 
 
