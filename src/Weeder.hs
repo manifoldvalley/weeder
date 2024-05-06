@@ -17,6 +17,8 @@ module Weeder
   , analyseHieFile
   , emptyAnalysis
   , outputableDeclarations
+  , usageGraph
+  , prettyUsageGraph
 
     -- ** Reachability
   , Root(..)
@@ -28,8 +30,9 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays, edgeList )
 import Algebra.Graph.ToGraph ( dfs )
+import qualified Algebra.Graph.Labelled.AdjacencyMap as AM
 
 -- base
 import Control.Applicative ( Alternative )
@@ -57,6 +60,7 @@ import Data.Generics.Labels ()
 
 -- ghc
 import GHC.Data.FastString ( unpackFS )
+import GHC.Unit.Module (moduleName, moduleNameString)
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind, RecField )
@@ -121,6 +125,17 @@ import Control.Monad.Trans.Reader ( runReaderT )
 import Weeder.Config ( Config, ConfigType( Config, typeClassRoots, unusedTypes ) )
 
 
+usageGraph :: Graph Declaration -> AM.AdjacencyMap (Set OccName) Module
+usageGraph x = flip foldMap (edgeList x) $ \(Declaration src _, Declaration dst occ) ->
+  AM.edge (Set.singleton occ) src dst
+
+prettyUsageGraph :: AM.AdjacencyMap (Set OccName) Module -> AM.AdjacencyMap (Set String) String
+prettyUsageGraph x = flip foldMap (AM.edgeList x) $ \(occs, src, dst) ->
+  let name = moduleNameString . moduleName
+   in AM.edge (Set.map occNameString occs) (name src) (name dst)
+
+
+
 data Declaration =
   Declaration
     { declModule :: Module
@@ -166,8 +181,8 @@ data Analysis =
       -- from its definition.
     , implicitRoots :: Set Root
       -- ^ Stores information on Declarations that may be automatically marked
-      -- as always reachable. This is used, for example, to capture knowledge 
-      -- not yet modelled in weeder, or to mark all instances of a class as 
+      -- as always reachable. This is used, for example, to capture knowledge
+      -- not yet modelled in weeder, or to mark all instances of a class as
       -- roots.
     , exports :: Map Module ( Set Declaration )
       -- ^ All exports for a given module.
@@ -188,7 +203,7 @@ data Analysis =
 
 
 instance Semigroup Analysis where
-  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)= 
+  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)=
     Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2) (Map.unionWith (<>) g1 g2)
 
 
@@ -214,7 +229,7 @@ data Root
     DeclarationRoot Declaration
   | -- | We store extra information for instances in order to be able
     -- to specify e.g. all instances of a class as roots.
-    InstanceRoot 
+    InstanceRoot
       Declaration -- ^ Declaration of the instance
       Declaration -- ^ Declaration of the parent class
   | -- | All exported declarations in a module are roots.
@@ -251,7 +266,7 @@ initialGraph info =
       asts = Map.elems hieAsts
       decls = concatMap (toList . findIdentifiers' (const True)) asts
   in if unusedTypes
-    then stars do 
+    then stars do
       (d, IdentifierDetails{identType}, _) <- decls
       t <- maybe mzero pure identType
       let ns = Set.toList $ typeToNames (lookupType hf t)
@@ -272,7 +287,7 @@ analyseHieFile' :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
 analyseHieFile' = do
   HieFile{ hie_asts = HieASTs hieASTs, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
-  
+
   g <- asks initialGraph
   #dependencyGraph %= overlay g
 
@@ -417,7 +432,7 @@ analyseInstanceDeclaration n@Node{ nodeSpan } = do
   guard $ annsContain n ("ClsInstD", "InstDecl")
 
   for_ ( findEvInstBinds n ) \(d, cs, ids, _) -> do
-    -- This makes instance declarations show up in 
+    -- This makes instance declarations show up in
     -- the output if type-class-roots is set to False.
     define d nodeSpan
 
@@ -467,7 +482,7 @@ analyseDataDeclaration n = do
       when unusedTypes $
         define dataTypeName (nodeSpan n)
 
-      -- Without connecting constructors to the data declaration TypeAliasGADT.hs 
+      -- Without connecting constructors to the data declaration TypeAliasGADT.hs
       -- fails with a false positive for A
       conDecs <- for ( constructors n ) \constructor ->
         for ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
@@ -729,7 +744,7 @@ followEvidenceUses refMap d names =
    in star d evBindSiteDecls
 
 
--- | Follow evidence uses listed under 'requestedEvidence' back to their 
+-- | Follow evidence uses listed under 'requestedEvidence' back to their
 -- instance bindings, and connect their corresponding declaration to those bindings.
 analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
 analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } =

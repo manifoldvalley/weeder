@@ -3,7 +3,18 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/lock_files
 
-packages: []
+packages:
+- completed:
+    commit: 01a42337b7f5845ce0c4df7d49cfd6949a78d8a7
+    git: https://github.com/manifoldvalley/alga
+    name: algebraic-graphs
+    pantry-tree:
+      sha256: 8e5f2509a21d68aff0a6669389ea7e50c70f082623a7ca8882b694fab8671eb5
+      size: 4607
+    version: '0.8'
+  original:
+    commit: 01a42337b7f5845ce0c4df7d49cfd6949a78d8a7
+    git: https://github.com/manifoldvalley/alga
 snapshots:
 - completed:
     sha256: 60e54c1ba3c1e7163acf6dafa9d56b2d3b23f88a31ad53a1c9d888f32561f8da
