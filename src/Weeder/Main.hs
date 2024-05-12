@@ -47,8 +47,10 @@ import qualified Data.Text.IO as T
 -- weeder
 import Weeder.Run
 import Weeder.Config
-import Weeder (dependencyGraph, usageGraph, prettyUsageGraph, dotOutput)
+import Weeder (dependencyGraph, usageGraph, prettyUsageGraph, dotOutput, getSelfContained, selfContainedImports, Declaration (declOccName), declModule)
 import Paths_weeder (version)
+import GHC.Types.Name
+import GHC.Unit.Module (moduleUnit, moduleName, moduleNameString)
 
 
 -- | Each exception corresponds to an exit code.
@@ -224,8 +226,29 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
       runWeeder weederConfig hieFiles
 
   mapM_ (putStrLn . formatWeed) weeds
+  let usage = usageGraph (dependencyGraph analysis)
+      selfcontained = getSelfContained analysis
 
-  writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
+      results = selfContainedImports selfcontained usage
+
+  for_ results $ \rset -> do
+    putStrLn $ unwords
+      [ "From "
+      , moduleNameString $ moduleName $ declModule $ head $ toList rset
+      , "you should split out:"
+      ]
+    for_ rset $ \decl -> do
+      putStrLn $ unwords
+        [ "-"
+        , occNameString $ declOccName decl
+        ]
+    putStrLn "\n"
+
+
+
+--   -- writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
+--   for_ (getSelfContained analysis) $ putStrLn . occNameString .  declOccName
+--   -- writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
 
   unless (null weeds) $ throwIO ExitWeedsFound
 

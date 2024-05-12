@@ -20,6 +20,8 @@ module Weeder
   , usageGraph
   , prettyUsageGraph
   , dotOutput
+  , getSelfContained
+  , selfContainedImports
 
     -- ** Reachability
   , Root(..)
@@ -31,16 +33,19 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays, edgeList )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays, edgeList, vertexList )
 import Algebra.Graph.ToGraph ( dfs )
 import qualified Algebra.Graph.Labelled.AdjacencyMap as AM
+
+import Data.Partition (Partition)
+import qualified Data.Partition as P
 
 -- base
 import Control.Applicative ( Alternative )
 import Control.Monad ( guard, msum, when, unless, mzero )
 import Data.Traversable ( for )
 import Data.Maybe ( mapMaybe )
-import Data.Foldable ( for_, traverse_, toList )
+import Data.Foldable ( for_, traverse_, toList, sequenceA_ )
 import Data.Function ( (&) )
 import Data.List ( intercalate, isPrefixOf )
 import Data.Monoid ( First( First ), getFirst )
@@ -105,7 +110,7 @@ import GHC.Types.Name
   , isTcOcc
   , isTvOcc
   , isVarOcc
-  , occNameString
+  , occNameString, isDerivedOccName, isTypeableBindOcc
   )
 import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine )
 
@@ -125,11 +130,47 @@ import Control.Monad.Trans.Reader ( runReaderT )
 
 -- weeder
 import Weeder.Config ( Config, ConfigType( Config, typeClassRoots, unusedTypes ) )
+import Control.Monad.State
 
 
-usageGraph :: Graph Declaration -> AM.AdjacencyMap (Set OccName) Module
-usageGraph x = flip foldMap (edgeList x) $ \(Declaration src _, Declaration dst occ) ->
-  AM.edge (Set.singleton occ) src dst
+usageGraph :: Graph Declaration -> AM.AdjacencyMap (Set Declaration) Module
+usageGraph x = flip foldMap (edgeList x) $ \(Declaration src _, d@(Declaration dst occ)) ->
+  AM.edge (Set.singleton d) src dst
+
+
+selfContainedImports :: Set Declaration -> AM.AdjacencyMap (Set Declaration) Module -> [Set Declaration]
+selfContainedImports ds am = P.nontrivialSets $ flip execState P.discrete $ sequenceA_ $ do
+  (occs, src, dst) <- AM.edgeList am
+  guard $ flip all occs $ \occ -> Set.member occ ds  || isPrefixOf "Manipipe.Type.Index" (moduleNameString $ moduleName $ declModule occ)
+  let rep = head $ toList occs
+  pure $ for_ occs $ modify . P.joinElems rep
+
+
+selfContained :: Analysis -> Declaration -> Bool
+selfContained a decl@(Declaration m _)
+  = (== 1)
+  $ length
+  $ Set.fromList
+  $ filter ((== m) . declModule)
+  $ toList
+  $ reachable a
+  $ Set.singleton
+  $ DeclarationRoot decl
+
+
+getSelfContained :: Analysis -> Set Declaration
+getSelfContained a = Set.fromList $ do
+  decl <- vertexList $ dependencyGraph a
+  let dstunit = show $ moduleUnit $ declModule decl
+  guard $ isPrefixOf "maniga-" dstunit || isPrefixOf "manipipe-" dstunit
+  guard $ not $ isDerivedOccName $ declOccName decl
+  guard $ not $ isTypeableBindOcc $ declOccName decl
+  guard $ selfContained a decl
+  pure decl
+
+
+
+
 
 
 prettyUsageGraph :: AM.AdjacencyMap (Set OccName) Module -> AM.AdjacencyMap (Set String) String
