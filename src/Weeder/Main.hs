@@ -47,13 +47,16 @@ import qualified Data.Text.IO as T
 -- weeder
 import Weeder.Run
 import Weeder.Config
+import Weeder (dependencyGraph, usageGraph, prettyUsageGraph, dotOutput, getSelfContained, selfContainedImports, Declaration (declOccName), declModule)
 import Paths_weeder (version)
+import GHC.Types.Name
+import GHC.Unit.Module (moduleUnit, moduleName, moduleNameString)
 
 
 -- | Each exception corresponds to an exit code.
-data WeederException 
+data WeederException
   = ExitNoHieFilesFailure
-  | ExitHieVersionFailure 
+  | ExitHieVersionFailure
       FilePath -- ^ Path to HIE file
       Integer -- ^ HIE file's header version
   | ExitConfigFailure
@@ -78,7 +81,7 @@ instance Exception WeederException where
     ExitWeedsFound -> mempty
     where
 
-      noHieFilesFoundMessage =  
+      noHieFilesFoundMessage =
         "No HIE files found: check that the directory is correct "
         <> "and that the -fwrite-ide-info compilation flag is set."
 
@@ -93,13 +96,13 @@ instance Exception WeederException where
         ]
 
 
--- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
+-- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error
 -- message to stderr.
 --
 -- Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
 -- 'getHieFiles'.
 handleWeederException :: IO a -> IO a
-handleWeederException a = catches a handlers 
+handleWeederException a = catches a handlers
   where
     handlers = [ Handler rethrowExits
                , Handler unwrapLinks
@@ -219,10 +222,33 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
   when (null hieFiles) $ throwIO ExitNoHieFilesFailure
 
   let
-    (weeds, _) =
+    (weeds, analysis) =
       runWeeder weederConfig hieFiles
 
   mapM_ (putStrLn . formatWeed) weeds
+  let usage = usageGraph (dependencyGraph analysis)
+      selfcontained = getSelfContained analysis
+
+      results = selfContainedImports selfcontained usage
+
+  for_ results $ \rset -> do
+    putStrLn $ unwords
+      [ "From "
+      , moduleNameString $ moduleName $ declModule $ head $ toList rset
+      , "you should split out:"
+      ]
+    for_ rset $ \decl -> do
+      putStrLn $ unwords
+        [ "-"
+        , occNameString $ declOccName decl
+        ]
+    putStrLn "\n"
+
+
+
+--   -- writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
+--   for_ (getSelfContained analysis) $ putStrLn . occNameString .  declOccName
+--   -- writeFile "usage.dot" $ dotOutput $ prettyUsageGraph $ usageGraph (dependencyGraph analysis)
 
   unless (null weeds) $ throwIO ExitWeedsFound
 
@@ -255,7 +281,7 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
     writeChan hieFileResultsChan Nothing
- 
+
   link a
 
   catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
